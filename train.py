@@ -1,190 +1,96 @@
-from PIL import Image
-from math import floor
-import numpy as np
-import time
-import cv2 as cv
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from torchvision.models import resnet18
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 
-from keras.models import model_from_json, Model
-from SL_StyleGAN import GAN
-from AdaIN import AdaInstanceNormalization, InstanceNormalization
-from data_loader import data_generator
+from data_loader import train_dataset, val_dataset, test_dataset
 
-# Para setting
-im_size = 256
-latent_size = 100
-batch_size = 16
-directory = "ISIC2018_mel"
-n_images = 1113
-suff = 'jpg'
+# Create the directory for saving models
+os.makedirs('./SavedModels/', exist_ok=True)
 
+# Hyperparameters
+num_classes = 7
+batch_size = 32
+n_epochs = 50
 
-# Style Z
-def noise(n):
-    return np.random.normal(0.0, 1.0, size=[n, latent_size])
+# Define and Train the Classifier with Transfer Learning
+class SkinLesionClassifier(nn.Module):
+    def __init__(self, num_classes=7):
+        super(SkinLesionClassifier, self).__init__()
+        self.resnet = resnet18(pretrained=True)
+        self.resnet.fc = nn.Linear(self.resnet.fc.in_features, num_classes)
 
+    def forward(self, x):
+        return self.resnet(x)
 
-# Noise Sample
-def noise_image(n):
-    return np.random.normal(0.0, 1.0, size=[n, im_size, im_size, 1])
+classifier = SkinLesionClassifier(num_classes=num_classes).cuda()
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(classifier.parameters(), lr=0.0001)
 
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-class Train(object):
+for epoch in range(n_epochs):
+    classifier.train()
+    for imgs, labels in train_loader:
+        imgs, labels = imgs.cuda(), labels.cuda()
+        optimizer.zero_grad()
+        outputs = classifier(imgs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+    print(f"Epoch [{epoch+1}/{n_epochs}], Loss: {loss.item()}")
 
-    def __init__(self, steps=-1, lr=0.0001, silent=True):
+# Evaluate the classifier on validation set
+classifier.eval()
+all_preds = []
+all_labels = []
 
-        self.GAN = GAN(lr=lr)
-        self.DisModel = self.GAN.DisModel()
-        self.AdModel = self.GAN.AdModel()
-        self.generator = self.GAN.generator()
+with torch.no_grad():
+    for imgs, labels in val_loader:
+        imgs, labels = imgs.cuda(), labels.cuda()
+        outputs = classifier(imgs)
+        _, predicted = torch.max(outputs.data, 1)
+        all_preds.extend(predicted.cpu().numpy())
+        all_labels.extend(labels.cpu().numpy())
 
-        if steps >= 0:
-            self.GAN.steps = steps
+accuracy = accuracy_score(all_labels, all_preds)
+precision = precision_score(all_labels, all_preds, average='macro')
+recall = recall_score(all_labels, all_preds, average='macro')
+f1 = f1_score(all_labels, all_preds, average='macro')
+roc_auc = roc_auc_score(all_labels, nn.functional.softmax(torch.tensor(all_preds), dim=1).numpy(), multi_class='ovo')
 
-        self.lastblip = time.clock()
+print(f'Validation Accuracy: {accuracy * 100}%')
+print(f'Validation Precision: {precision}')
+print(f'Validation Recall: {recall}')
+print(f'Validation F1 Score: {f1}')
+print(f'Validation ROC-AUC Score: {roc_auc}')
 
-        self.noise_level = 0
+# Test the Classifier
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-        # load image data
-        self.im = data_generator(im_size, directory, n_images, suffix=suff, flip=True)
+all_test_preds = []
+all_test_labels = []
 
-        self.silent = silent
+with torch.no_grad():
+    for imgs, labels in test_loader:
+        imgs, labels = imgs.cuda(), labels.cuda()
+        outputs = classifier(imgs)
+        _, predicted = torch.max(outputs.data, 1)
+        all_test_preds.extend(predicted.cpu().numpy())
+        all_test_labels.extend(labels.cpu().numpy())
 
-        self.ones = np.ones((batch_size, 1), dtype=np.float32)
-        self.zeros = np.zeros((batch_size, 1), dtype=np.float32)
-        self.nones = -self.ones
+test_accuracy = accuracy_score(all_test_labels, all_test_preds)
+test_precision = precision_score(all_test_labels, all_test_preds, average='macro')
+test_recall = recall_score(all_test_labels, all_test_preds, average='macro')
+test_f1 = f1_score(all_test_labels, all_test_preds, average='macro')
+test_roc_auc = roc_auc_score(all_test_labels, nn.functional.softmax(torch.tensor(all_test_preds), dim=1).numpy(), multi_class='ovo')
 
-        self.enoise = noise(8)
-        self.enoiseImage = noise_image(8)
-
-    def train(self):
-
-        # Train Alternating
-        a = self.train_dis()
-        b = self.train_gen()
-
-        # Print information when training
-        if self.GAN.steps % 20 == 0 and not self.silent:
-            print("\n\nRound " + str(self.GAN.steps) + ":")
-            print("D: " + str(a))
-            print("G: " + str(b))
-            s = round((time.clock() - self.lastblip) * 1000) / 1000
-            print("T: " + str(s) + " sec")
-            self.lastblip = time.clock()
-
-            # Save Model
-            if self.GAN.steps % 500 == 0:
-                self.save(floor(self.GAN.steps / 10000)+0)
-            if self.GAN.steps % 500 == 0:
-                self.evaluate(floor(self.GAN.steps / 100)+0)
-
-        self.GAN.steps = self.GAN.steps + 1
-
-    def train_dis(self):
-
-        # Get Data
-        train_data = [self.im.get_batch(batch_size), noise(batch_size), noise_image(batch_size), self.ones]
-
-        # Train
-        d_loss = self.DisModel.train_on_batch(train_data, [self.ones, self.nones, self.ones])
-
-        return d_loss
-
-    def train_gen(self):
-
-        # Train
-        g_loss = self.AdModel.train_on_batch([noise(batch_size), noise_image(batch_size), self.ones], self.zeros)
-
-        return g_loss
-
-    def evaluate(self, num=0):  # 8x4 images, bottom row is constant
-
-        n = noise(32)
-        n2 = noise_image(32)
-
-        im2 = self.generator.predict([n, n2, np.ones([32, 1])])
-        im3 = self.generator.predict([self.enoise, self.enoiseImage, np.ones([8, 1])])
-
-        r12 = np.concatenate(im2[:8], axis=1)
-        r22 = np.concatenate(im2[8:16], axis=1)
-        r32 = np.concatenate(im2[16:24], axis=1)
-        r43 = np.concatenate(im3[:8], axis=1)
-
-        c1 = np.concatenate([r12, r22, r32, r43], axis=0)
-
-        x = Image.fromarray(np.uint8(c1 * 255))
-
-        x.save("Results/SL-StyleGAN_evaluated_" + str(num) + ".jpg")
-
-    # Save Models
-    def saveModel(self, model, name, num):
-        json = model.to_json()
-        with open("SavedModels/" + name + ".json", "w") as json_file:
-            json_file.write(json)
-
-        model.save_weights("SavedModels/" + name + "_" + str(num) + ".h5")
-
-    # Load Models
-    def loadModel(self, name, num):  # Load a Model
-
-        file = open("SavedModels/" + name + ".json", 'r')
-        json = file.read()
-        file.close()
-
-        mod = model_from_json(json, custom_objects={'AdaInstanceNormalization': AdaInstanceNormalization
-                                                    })
-        mod.load_weights("SavedModels/" + name + "_" + str(num) + ".h5")
-
-        return mod
-
-    # Save JSON and Weights into /SavedModels/
-    def save(self, num):
-        self.saveModel(self.GAN.G, "generator", num)
-        self.saveModel(self.GAN.D, "discriminator", num)
-
-    # Load JSON and Weights from /SavedModels/
-    def load(self, num):  # Load JSON and Weights from /Models/
-        steps1 = self.GAN.steps
-
-        self.GAN = None
-        self.GAN = GAN()
-
-        # Load Models
-        self.GAN.G = self.loadModel("generator", num)
-        self.GAN.D = self.loadModel("discriminator", num)
-
-        self.GAN.steps = steps1
-
-        self.generator = self.GAN.generator()
-        self.DisModel = self.GAN.DisModel()
-        self.AdModel = self.GAN.AdModel()
-
-    def generate_images(self):
-        num_img = 500  # num of images to generate
-        rnd_n = np.random.RandomState(6)
-        n = rnd_n.normal(0.0, 1.0, size=[num_img, latent_size])
-        # n[:, 1] = 2.5
-        rnd_img = np.random.RandomState(8)
-        n_img = rnd_img.normal(0.0, 1.0, size=[num_img, im_size, im_size, 1])
-
-        gen_imgs = self.generator.predict([n, n_img, np.ones([num_img, 1])])
-
-        for k in range(num_img):
-            gen_imgs[k] = cv.normalize(gen_imgs[k], None, 0, 255, cv.NORM_MINMAX, cv.CV_8U)
-            (b, g, r) = cv.split(gen_imgs[k])
-            gen_imgs[k] = cv.merge([r, g, b])
-            cv.imwrite("Results/SL-StyleGAN_generated_%d.jpg" % (k + 1), gen_imgs[k])
-
-
-if __name__ == "__main__":
-    epoch = 20000
-
-    model = Train(lr=0.0001, silent=False)        # lr = 0.001 bad results
-
-    # This is for the model loading and evaluating, or continue training
-    # model.load(2)
-
-    for i in range(epoch):
-        model.train()
-
-    # Generate images
-    model.generate_images()
+print(f'Test Accuracy: {test_accuracy * 100}%')
+print(f'Test Precision: {test_precision}')
+print(f'Test Recall: {test_recall}')
+print(f'Test F1 Score: {test_f1}')
+print(f'Test ROC-AUC Score: {test_roc_auc}')

@@ -57,11 +57,20 @@ with torch.no_grad():
         all_preds.extend(predicted.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
 
+# Debugging statement: Print shapes
+print(f"all_preds shape: {torch.tensor(all_preds).shape}")
+print(f"all_labels shape: {torch.tensor(all_labels).shape}")
+
+# Ensure the tensor is in the correct shape for softmax
+all_preds_tensor = torch.tensor(all_preds)
+if all_preds_tensor.ndim == 1:
+    all_preds_tensor = all_preds_tensor.unsqueeze(0)
+
 accuracy = accuracy_score(all_labels, all_preds)
 precision = precision_score(all_labels, all_preds, average='macro')
 recall = recall_score(all_labels, all_preds, average='macro')
 f1 = f1_score(all_labels, all_preds, average='macro')
-roc_auc = roc_auc_score(all_labels, nn.functional.softmax(torch.tensor(all_preds), dim=1).numpy(), multi_class='ovo')
+roc_auc = roc_auc_score(all_labels, nn.functional.softmax(all_preds_tensor, dim=1).numpy(), multi_class='ovo')
 
 print(f'Validation Accuracy: {accuracy * 100}%')
 print(f'Validation Precision: {precision}')
@@ -83,11 +92,16 @@ with torch.no_grad():
         all_test_preds.extend(predicted.cpu().numpy())
         all_test_labels.extend(labels.cpu().numpy())
 
+# Ensure the tensor is in the correct shape for softmax
+all_test_preds_tensor = torch.tensor(all_test_preds)
+if all_test_preds_tensor.ndim == 1:
+    all_test_preds_tensor = all_test_preds_tensor.unsqueeze(0)
+
 test_accuracy = accuracy_score(all_test_labels, all_test_preds)
 test_precision = precision_score(all_test_labels, all_test_preds, average='macro')
 test_recall = recall_score(all_test_labels, all_test_preds, average='macro')
 test_f1 = f1_score(all_test_labels, all_test_preds, average='macro')
-test_roc_auc = roc_auc_score(all_test_labels, nn.functional.softmax(torch.tensor(all_test_preds), dim=1).numpy(), multi_class='ovo')
+test_roc_auc = roc_auc_score(all_test_labels, nn.functional.softmax(all_test_preds_tensor, dim=1).numpy(), multi_class='ovo')
 
 print(f'Test Accuracy: {test_accuracy * 100}%')
 print(f'Test Precision: {test_precision}')

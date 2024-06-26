@@ -5,7 +5,7 @@ from torchvision import transforms
 from torch.utils.data import Dataset
 
 # Define your dataset paths
-TRAIN_IMAGES_DIR = '/content/drive/My Drive/shared_with_me/ISIC2018_Task3_Training_Input'
+TRAIN_IMAGES_DIR = '/content/drive/My Drive/Colab/ISIC2018_Task3_Training_Input/ISIC2018_Task3_Training_Input'
 TRAIN_LABELS_FILE = '/content/drive/My Drive/Colab/ISIC2018_Task3_Training_GroundTruth/ISIC2018_Task3_Training_GroundTruth/ISIC2018_Task3_Training_GroundTruth.csv'
 VAL_IMAGES_DIR = '/content/drive/My Drive/Colab/ISIC2018_Task3_Validation_Input/ISIC2018_Task3_Validation_Input'
 VAL_LABELS_FILE = '/content/drive/My Drive/Colab/ISIC2018_Task3_Validation_GroundTruth/ISIC2018_Task3_Validation_GroundTruth/ISIC2018_Task3_Validation_GroundTruth.csv'

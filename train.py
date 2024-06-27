@@ -71,11 +71,15 @@ all_preds_tensor = torch.tensor(all_preds, dtype=torch.float)
 if all_preds_tensor.ndim == 1:
     all_preds_tensor = all_preds_tensor.unsqueeze(0)
 
+# Apply softmax to logits to get probabilities
+all_logits_tensor = torch.tensor(all_logits, dtype=torch.float)
+probabilities = nn.functional.softmax(all_logits_tensor, dim=1).numpy()
+
 accuracy = accuracy_score(all_labels, all_preds)
 precision = precision_score(all_labels, all_preds, average='macro')
 recall = recall_score(all_labels, all_preds, average='macro')
 f1 = f1_score(all_labels, all_preds, average='macro')
-roc_auc = roc_auc_score(all_labels, all_logits, multi_class='ovo')
+roc_auc = roc_auc_score(all_labels, probabilities, multi_class='ovo')
 
 print(f'Validation Accuracy: {accuracy * 100}%')
 print(f'Validation Precision: {precision}')
@@ -104,11 +108,15 @@ all_test_preds_tensor = torch.tensor(all_test_preds, dtype=torch.float)
 if all_test_preds_tensor.ndim == 1:
     all_test_preds_tensor = all_test_preds_tensor.unsqueeze(0)
 
+# Apply softmax to logits to get probabilities
+all_test_logits_tensor = torch.tensor(all_test_logits, dtype=torch.float)
+test_probabilities = nn.functional.softmax(all_test_logits_tensor, dim=1).numpy()
+
 test_accuracy = accuracy_score(all_test_labels, all_test_preds)
 test_precision = precision_score(all_test_labels, all_test_preds, average='macro')
 test_recall = recall_score(all_test_labels, all_test_preds, average='macro')
 test_f1 = f1_score(all_test_labels, all_test_preds, average='macro')
-test_roc_auc = roc_auc_score(all_test_labels, all_test_logits, multi_class='ovo')
+test_roc_auc = roc_auc_score(all_test_labels, test_probabilities, multi_class='ovo')
 
 print(f'Test Accuracy: {test_accuracy * 100}%')
 print(f'Test Precision: {test_precision}')

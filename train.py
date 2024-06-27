@@ -16,8 +16,6 @@ num_classes = 7
 batch_size = 32
 n_epochs = 50
 
-# Device configuration
-device = torch.device('cpu')
 
 
 # Define and Train the Classifier with Transfer Learning
@@ -30,7 +28,7 @@ class SkinLesionClassifier(nn.Module):
     def forward(self, x):
         return self.resnet(x)
 
-classifier = SkinLesionClassifier(num_classes=num_classes).to(device)
+classifier = SkinLesionClassifier(num_classes=num_classes).cuda()
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(classifier.parameters(), lr=0.0001)
 
@@ -40,7 +38,7 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 for epoch in range(n_epochs):
     classifier.train()
     for imgs, labels in train_loader:
-        imgs, labels = imgs.to(device), labels.to(device)
+        imgs, labels = imgs.cuda(), labels.cuda()
         optimizer.zero_grad()
         outputs = classifier(imgs)
         loss = criterion(outputs, labels)
@@ -55,7 +53,7 @@ all_labels = []
 
 with torch.no_grad():
     for imgs, labels in val_loader:
-        imgs, labels = imgs.to(device), labels.to(device)
+        imgs, labels = imgs.cuda(), labels.cuda()
         outputs = classifier(imgs)
         _, predicted = torch.max(outputs.data, 1)
         all_preds.extend(predicted.cpu().numpy())
@@ -90,7 +88,7 @@ all_test_labels = []
 
 with torch.no_grad():
     for imgs, labels in test_loader:
-        imgs, labels = imgs.to(device), labels.to(device)
+        imgs, labels = imgs.cuda(), labels.cuda()
         outputs = classifier(imgs)
         _, predicted = torch.max(outputs.data, 1)
         all_test_preds.extend(predicted.cpu().numpy())
